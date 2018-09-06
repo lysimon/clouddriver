@@ -42,29 +42,9 @@ class CreateServerGroupAtomicOperationSpec extends CommonAtomicOperation {
     def loadBalancingV2 = Mock(AmazonElasticLoadBalancing)
     def autoScalingClient = Mock(AWSApplicationAutoScaling)
 
-    def applicationName = 'myapp'
-    def stack = 'kcats'
-    def detail = 'liated'
-    def serviceName = "${applicationName}-${stack}-${detail}"
-
-    def description = new CreateServerGroupDescription(
-      application: applicationName,
-      stack: stack,
-      freeFormDetails: detail,
-      ecsClusterName: 'test-cluster',
-      iamRole: 'test-role',
-      containerPort: 1337,
-      targetGroup: 'target-group-arn',
-      securityGroups: ['sg-deadbeef'],
-      portProtocol: 'tcp',
-      computeUnits: 9001,
-      reservedMemory: 9001,
-      dockerImageAddress: 'docker-image-url',
-      capacity: new ServerGroup.Capacity(1, 1, 1),
-      availabilityZones: ['us-west-1': ['us-west-1a', 'us-west-1b', 'us-west-1c']],
-      autoscalingPolicies: [],
-      placementStrategySequence: []
-    )
+    def description = getDescription()
+    description.iamRole = 'test-role'
+    def serviceName = "${description.application}-${description.stack}-${description.freeFormDetails}"
 
     def operation = new CreateServerGroupAtomicOperation(description)
 
@@ -111,5 +91,86 @@ class CreateServerGroupAtomicOperationSpec extends CommonAtomicOperation {
     result.getServerGroupNames().contains("us-west-1:" + serviceName)
     result.getServerGroupNameByRegion().containsKey('us-west-1')
     result.getServerGroupNameByRegion().get('us-west-1').contains(serviceName)
+  }
+
+  def 'should generate a RegisterTaskDefinitionRequest object'() {
+    given:
+    def createServerGroupDescription = getDescription()
+    def operation = new CreateServerGroupAtomicOperation(createServerGroupDescription)
+
+    when:
+    RegisterTaskDefinitionRequest result = operation.registerTaskDefinitionRequest("v1")
+
+    then:
+    result.getTaskRoleArn() == null
+    result.getFamily() == "${description.application}-${description.stack}-${description.freeFormDetails}"
+
+    result.getContainerDefinitions().size() == 1
+    def containerDefinition = result.getContainerDefinitions().first()
+    containerDefinition.name == 'v1'
+    containerDefinition.image == 'docker-image-url'
+    containerDefinition.cpu == 9001
+    containerDefinition.memoryReservation == 9001
+
+    containerDefinition.portMappings.size() == 1
+    def portMapping = containerDefinition.portMappings.first()
+    portMapping.getHostPort() == 0
+    portMapping.getContainerPort() == 1337
+    portMapping.getProtocol() == 'tcp'
+
+    containerDefinition.environment.size() == 3
+    def environments = [:]
+    for(elem in containerDefinition.environment){
+      environments.put(elem.getName(), elem.getValue())
+    }
+    environments.get("SERVER_GROUP") == "v1"
+    environments.get("CLOUD_STACK") == "kcats"
+    environments.get("CLOUD_DETAIL") == "liated"
+  }
+
+  def 'should set additional environment variables'() {
+    given:
+    def createServerGroupDescription = getDescription()
+    createServerGroupDescription.environmentVariables = ["ENVIRONMENT_1" : "test1", "ENVIRONMENT_2" : "test2"]
+    def operation = new CreateServerGroupAtomicOperation(createServerGroupDescription)
+
+    when:
+    RegisterTaskDefinitionRequest result = operation.registerTaskDefinitionRequest("v1")
+
+    then:
+    result.getContainerDefinitions().size() == 1
+    def containerDefinition = result.getContainerDefinitions().first()
+    containerDefinition.environment.size() == 5
+    def environments = [:]
+    for(elem in containerDefinition.environment){
+      environments.put(elem.getName(), elem.getValue())
+    }
+    environments.get("SERVER_GROUP") == "v1"
+    environments.get("CLOUD_STACK") == "kcats"
+    environments.get("CLOUD_DETAIL") == "liated"
+    environments.get("ENVIRONMENT_1") == "test1"
+    environments.get("ENVIRONMENT_2") == "test2"
+  }
+
+  private CreateServerGroupDescription getDescription(){
+    CreateServerGroupDescription description = new CreateServerGroupDescription()
+    description.application = 'myapp'
+    description.stack = 'kcats'
+    description.freeFormDetails = 'liated'
+    description.ecsClusterName = 'test-cluster'
+    description.iamRole = 'None (No IAM role)'
+    description.containerPort = 1337
+    description.targetGroup = 'target-group-arn'
+    description.securityGroups = ['sg-deadbeef']
+    description.portProtocol = 'tcp'
+    description.computeUnits = 9001
+    description.reservedMemory = 9001
+    description.dockerImageAddress = 'docker-image-url'
+    description.capacity = new ServerGroup.Capacity(1, 1, 1)
+    description.availabilityZones = ['us-west-1': ['us-west-1a', 'us-west-1b', 'us-west-1c']]
+    description.autoscalingPolicies = []
+    description.placementStrategySequence = []
+
+    return description
   }
 }

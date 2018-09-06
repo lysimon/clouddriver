@@ -108,7 +108,24 @@ public class CreateServerGroupAtomicOperation extends AbstractEcsAtomicOperation
 
   private TaskDefinition registerTaskDefinition(AmazonECS ecs, String version) {
 
+    RegisterTaskDefinitionRequest request = registerTaskDefinitionRequest(version);
+
+    RegisterTaskDefinitionResult registerTaskDefinitionResult = ecs.registerTaskDefinition(request);
+
+    return registerTaskDefinitionResult.getTaskDefinition();
+  }
+
+  protected RegisterTaskDefinitionRequest registerTaskDefinitionRequest(String version) {
     Collection<KeyValuePair> containerEnvironment = new LinkedList<>();
+
+    // Set all user defined environment variables
+    final Map<String, String> environmentVariables = description.getEnvironmentVariables();
+    if(environmentVariables != null) {
+      for (Map.Entry<String, String> entry : environmentVariables.entrySet()) {
+        containerEnvironment.add(new KeyValuePair().withName(entry.getKey()).withValue(entry.getValue()));
+      }
+    }
+
     containerEnvironment.add(new KeyValuePair().withName("SERVER_GROUP").withValue(version));
     containerEnvironment.add(new KeyValuePair().withName("CLOUD_STACK").withValue(description.getStack()));
     containerEnvironment.add(new KeyValuePair().withName("CLOUD_DETAIL").withValue(description.getFreeFormDetails()));
@@ -141,9 +158,7 @@ public class CreateServerGroupAtomicOperation extends AbstractEcsAtomicOperation
       request.setTaskRoleArn(description.getIamRole());
     }
 
-    RegisterTaskDefinitionResult registerTaskDefinitionResult = ecs.registerTaskDefinition(request);
-
-    return registerTaskDefinitionResult.getTaskDefinition();
+    return request;
   }
 
   private Service createService(AmazonECS ecs, TaskDefinition taskDefinition, String ecsServiceRole, String version) {
